@@ -43,7 +43,7 @@ INDICATORS = {
         "初请失业金 (Initial Claims)": "ICSA"
     },
     "消费 (Consumption)": {
-        "零售销售 (Retail Sales)": "RSXFS",
+        "零售销售 (Retail Sales)": "RSAFS",
         "个人消费支出 (PCE)": "PCE",
         "消费者信心 (UMich Sentiment)": "UMCSENT"
     },
@@ -299,7 +299,7 @@ def generate_smart_report(category, df):
         sent_now, sent_prev = latest_vals.get('UMCSENT', (0,0))
         
         report_text += "#### 1. 需求端韧性透视\n"
-        report_text += f"- **零售销售 (恐怖数据)**：同比增速 **{retail_now:.2f}%** ({get_trend_str(retail_now, retail_prev)})。"
+        report_text += f"- **零售销售**：同比增速 **{retail_now:.2f}%** ({get_trend_str(retail_now, retail_prev)})。"
         
         if retail_now > 5.0:
             report_text += " 消费动能**异常强劲**。在超额储蓄消耗殆尽的背景下，这主要由强劲的劳动力市场支撑。经济呈现“不着陆（No Landing）”特征。\n"
