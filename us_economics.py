@@ -14,7 +14,7 @@ st.set_page_config(page_title="US 美国经济数据监测", layout="wide")
 st.title("🇺🇸 美国经济数据监测系统")
 
 # API Key 配置
-API_KEY = "FRED_API_KEY"
+API_KEY = st.secrets["FRED_API_KEY"]
 
 # 侧边栏：配置优化
 with st.sidebar:
