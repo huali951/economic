@@ -184,15 +184,22 @@ def calculate_quant_metrics(df, z_window):
             metrics_df[f"{col}_Market"] = df[col]
         else:
             metrics_df[f"{col}_Market"] = df[col].pct_change(12) * 100
-        # 2. 动量视角 (Momentum for Heatmap)
+        # 2. 动量视角 (Momentum for Heatmap) & 原始值 (for Radar)
         series_filled = df[col].ffill()
         if code in ["UNRATE", "ICSA", "UMCSENT"]:
+            # 对于雷达图，我们需要一个“越大越好”的排名
+            # 虽然这里计算的是yoy，但我们也保存一个用于排名的 raw_val
+            # 简单起见，我们直接保存填充后的原始值作为 _Raw，在雷达图逻辑中处理反向逻辑
+            metrics_df[f"{col}_Raw"] = series_filled
             yoy = series_filled.diff(12)
         else:
+            metrics_df[f"{col}_Raw"] = series_filled.pct_change(12) * 100
             yoy = series_filled.pct_change(12) * 100
+            
         if code in INVERSE_CODES:
              yoy = -yoy 
         metrics_df[f"{col}_Momentum"] = yoy
+        
         # 3. Z-Score
         rolling_mean = yoy.rolling(window=z_window).mean()
         rolling_std = yoy.rolling(window=z_window).std()
@@ -398,7 +405,8 @@ if API_KEY:
                     st.caption(f"当前状态: {state_tag}")
 
         # --- 深度分析 Tabs ---
-        tab1, tab2, tab3 = st.tabs([" 趋势分析 & 研报", " 宏观周期定位", " 动态 Z-Score 热力图"])
+        tab1, tab2, tab3, tab4 = st.tabs([" 趋势分析 & 研报", " 宏观周期定位", " 动态 Z-Score 热力图", "经济状态雷达"])
+
         
         # Tab 1: 趋势分析 & 智能研报 (全面升级)
         with tab1:
@@ -548,6 +556,97 @@ if API_KEY:
                     * **就业**：裁员增加，失业率上升 (我们已对失业率做了反向处理，数值升高会变蓝)。
                     * **消费/增长**：需求萎缩，经济降温。
                     * **通胀**：通缩或低通胀。
+                """)
+
+               # Tab 4: 经济状态雷达 
+        with tab4:
+            st.markdown("##### 🕸️ 经济状态雷达：当前 vs 1年前 (基于历史百分位)")
+            
+            # 1. 准备雷达图数据
+            # 我们选取每个板块的一个代表性指标
+            radar_indicators = {
+                "就业 (非农)": "非农就业人数 (Non-Farm Payrolls)",
+                "消费 (零售)": "零售销售 (Retail Sales)",
+                "增长 (工业)": "工业产出 (Industrial Production)",
+                "通胀 (CPI)": "CPI (All Urban)",
+                "信心 (密歇根)": "消费者信心 (UMich Sentiment)"
+            }
+            
+            radar_data = {}
+            # 计算历史分位数 (Percentile Rank)
+            # 0 = 历史最低，100 = 历史最高
+            for label, col_name in radar_indicators.items():
+                if f"{col_name}_Raw" in quant_df.columns:
+                    series = quant_df[f"{col_name}_Raw"].dropna()
+                    
+                    if not series.empty:
+                        # 针对反向指标 (失业率等)，如果要加入，需要反转排名
+                        # 目前选取的全都是正向指标 (越大越好)，所以直接计算
+                        
+                        # 计算当前值的百分位
+                        current_val = series.iloc[-1]
+                        current_rank = (series < current_val).mean() * 100
+                        
+                        # 计算1年前值的百分位
+                        if len(series) > 12:
+                            last_year_val = series.iloc[-13]
+                            last_year_rank = (series < last_year_val).mean() * 100
+                        else:
+                            last_year_rank = 50 
+                            
+                        radar_data[label] = (current_rank, last_year_rank)
+
+            if radar_data:
+                categories = list(radar_data.keys())
+                current_vals = [v[0] for v in radar_data.values()]
+                last_year_vals = [v[1] for v in radar_data.values()]
+                
+                # 闭合雷达图
+                categories.append(categories[0])
+                current_vals.append(current_vals[0])
+                last_year_vals.append(last_year_vals[0])
+
+                fig_radar = go.Figure()
+                
+                # 绘制当前状态 (红色)
+                # 使用 customdata 传入对比数据(last_year_vals)，并在 hovertemplate 中显示
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=current_vals, theta=categories,
+                    fill='toself', name='当前 (Current)',
+                    line_color='red',
+                    customdata=last_year_vals,
+                    hovertemplate="<b>%{theta}</b><br>当前: %{r:.1f}<br>1年前: %{customdata:.1f}<extra></extra>"
+                ))
+                
+                # 绘制1年前状态 (灰色)
+                # 同样传入当前数据作为对比，确保悬停在哪层都能看到两个数
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=last_year_vals, theta=categories,
+                    fill='toself', name='1年前 (1 Year Ago)',
+                    line_color='gray', opacity=0.5,
+                    customdata=current_vals,
+                    hovertemplate="<b>%{theta}</b><br>1年前: %{r:.1f}<br>当前: %{customdata:.1f}<extra></extra>"
+                ))
+
+                fig_radar.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 100]),
+                    ),
+                    showlegend=True,
+                    height=500,
+                    title="经济状态雷达 (0=历史最冷, 100=历史最热)"
+                )
+                
+                st.plotly_chart(fig_radar, use_container_width=True)
+                
+                st.info("""
+                **💡 雷达图解读**：
+                * **维度**：选取了五大核心领域的代表性指标。
+                * **数值 (0-100)**：代表**历史百分位**。
+                    * **100**：表示当前数据处于所选历史区间内的**最高点**（极度过热/强劲）。
+                    * **50**：表示处于历史**中位数**（正常水平）。
+                    * **0**：表示处于历史**最低点**（极度衰退/冰点）。
+                * **对比**：红色覆盖区域 > 灰色区域，说明当前经济比一年前更热/更强。
                 """)
         
         # 5. 原始数据表格
